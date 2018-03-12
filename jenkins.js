@@ -1,14 +1,17 @@
 #!/usr/bin/env node
 var path = require('path');
 var http = require('http');
+var fs = require('fs');
 
-const githubUser = '*',
-	githubPass='*';
+var config = JSON.parse(fs.readFileSync('config.json', 'utf8'));
+
+const githubUser = config.githubUser,
+	githubPass = config.githubPass;
 
 const jenkins = (function(){
 	const 
-		jenkinsUrl = '*',
-		jenkinsPort = 0,
+		jenkinsUrl = config.jenkinsUrl,
+		jenkinsPort = config.jenkinsPort,
 		m2releaseVesrion = 'releaseVersion',
 		m2devVesrion = 'developmentVersion',
 		m2value = 'value="';
