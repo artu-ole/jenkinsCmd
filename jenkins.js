@@ -1,7 +1,8 @@
 #!/usr/bin/env node
-var path = require('path');
-var http = require('http');
-var fs = require('fs');
+'use strict';
+const path = require('path');
+const http = require('http');
+const fs = require('fs');
 
 var config = JSON.parse(fs.readFileSync(path.join(__dirname, 'config.json'), 'utf8'));
 
@@ -17,9 +18,13 @@ const jenkins = (function(){
 		m2localBranch = 'hudson.plugins.git.extensions.impl.LocalBranch',
 		m2value = 'value="';
 
-	const jobName = path.win32.basename(path.resolve('./'));
-	// const jobName = 'org.visit.web.widget.embed';
-
+	let jobName = path.win32.basename(path.resolve('./'));
+	let nameArg = process.argv.filter(arg=>arg.startsWith('-name='));
+	if(nameArg.length>0)
+	{
+		jobName = nameArg[0].replace('-name=','');
+		process.argv.splice(process.argv.indexOf(nameArg[0]), 1);
+	}
 	let options = function(){
 		return{
 			host: jenkinsUrl,
@@ -146,7 +151,7 @@ const jenkins = (function(){
 						body = body.slice(0, i) + '\x1b[0m' + body.slice(i);
 					}
 					if(body !== '')
-						console.log(body);
+						console.log(body.slice(0,-2));
 					if(response.res.headers['x-more-data'])
 					{
 						setTimeout(()=>{
@@ -156,20 +161,6 @@ const jenkins = (function(){
 					return '';
 				});
 			}
-			/*
-			 *
-			 *
-			 * Response:
-			 * X-More-Data:true
-			 * X-Text-Size:11268
-			 *
-			 * Request:
-			 * Content-type:application/x-www-form-urlencoded; charset=UTF-8
-			 * Data:
-			 * start=11268
-			 *
-			 *
-			 */
 		},
 		getBuildStatus: function(buildNumber){
 			let getOptions = options();
@@ -192,11 +183,10 @@ const jenkins = (function(){
 					return status.builds.map(build=>{
 						let msg = '';
 						//columns
-						// msg += build.building ? '..\t' : build.result === 'SUCCESS' ? 'O\t' : 'X\t';
 						msg += build.displayName+'\t';
 						msg += build.building ? 'IN PROGRESS\t': (build.result === 'SUCCESS' ? '\x1b[32m'+build.result : '\x1b[31m'+build.result)+'\x1b[0m\t';
 						msg += (new Date(build.timestamp)).toLocaleString()+'\t';
-						msg += build.actions[0]._class === 'hudson.model.ParametersAction' ?
+						msg += build.actions[0]._class === 'hudson.model.ParametersAction' && !build.building ?
 							(build.result === 'SUCCESS' ? 'Successful' : 'Failed')+' release '+(build.mavenArtifacts?build.mavenArtifacts.moduleRecords[0].mainArtifact.version.slice(0,-9):'') :'';
 						msg += '\n';
 						return msg;
