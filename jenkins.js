@@ -162,38 +162,64 @@ const jenkins = (function(){
 				});
 			}
 		},
-		getBuildStatus: function(buildNumber){
+		getQueue: function(){
 			let getOptions = options();
-			getOptions.path = '/job/'+jobName+'/'+buildNumber+'/api/json';
-			return makeRequest(getOptions);
+			getOptions.path = '/queue/api/json?tree=items[actions[causes]{0},id,inQueueSince,params,task[name]]';
+			let getExecOptions = options();
+			getExecOptions.path = '/computer/api/json?tree=computer[executors[idle,likelyStuck,progress,currentExecutable[timestamp,number,actions[causes]{0},result,displayName,fullDisplayName,building,mavenArtifacts[moduleRecords[mainArtifact[version]]]]]]';
+			return makeRequest(getOptions).then(response=>JSON.parse(response));
+		},
+		getBuilds: function(){
+			let getOptions = options();
+			getOptions.path = '/computer/api/json?tree=computer[executors[idle,likelyStuck,progress,currentExecutable[timestamp,number,actions[causes]{0},result,displayName,fullDisplayName,building,mavenArtifacts[moduleRecords[mainArtifact[version]]]]]]';
+			return makeRequest(getOptions).then(response=>JSON.parse(response));
+		},
+		getQueueStatus: function(){
+			return Promise.all([this.getQueue(), this.getBuilds()]).then(responses=>{
+				let msg = '';
+				let queueItems = responses[0];
+				let buildItems = responses[1];
+				let queueMsg = queueItems.items.map(item=>item.id+'\t'+(new Date(item.inQueueSince)).toLocaleString()+'\t'+item.task.name+'\t'+(item.actions[0].causes ?item.actions[0].causes[0]._class+'\t':'')+item.params+'\n').join('');
+				msg += queueMsg ? 'Items in queue:\n'+queueMsg : 'No items in queue.\n';
+				let buildMsg = buildItems.computer.reduce((x, y)=>[...x, ...y.executors], []).map(item=>{
+					if(item.currentExecutable)
+						return item.currentExecutable.displayName+'\t'+
+							(new Date(item.currentExecutable.timestamp)).toLocaleString()+'\t'+
+							item.currentExecutable.fullDisplayName+'\t'+
+							(item.currentExecutable.actions[0].causes ? item.currentExecutable.actions[0].causes[0]._class : '') + '\n';
+				}).join('');
+				msg += buildMsg ? 'Items building:\n'+buildMsg : 'No items building.\n';
+				return msg;
+			},rejected=>{
+				console.warn(rejected);
+			});
 		},
 		getStatus: function(){
 			let getOptions = options();
-			getOptions.path = '/job/'+jobName+'/api/json?tree=builds[timestamp,number,actions[causes]{0},result,displayName,building,mavenArtifacts[moduleRecords[mainArtifact[version]]]]';
-			return makeRequest(getOptions).then(response=>{
-				let status = JSON.parse(response);
-				let buildPromises = [];
-				// status.builds.forEach((build, index)=>{
-				// 	buildPromises.push(this.getBuildStatus(build.number).then(response=>{
-				// 		let buildStatus = JSON.parse(response);
-				// 		status.builds[index] = buildStatus;
-				// 	}));
-				// });
-				return Promise.all(buildPromises).then(()=>{
-					return status.builds.map(build=>{
+			getOptions.path = '/job/'+jobName+'/api/json?tree=builds[timestamp,number,actions[causes,lastBuiltRevision[branch[name,SHA1]]],result,displayName,building,mavenArtifacts[moduleRecords[mainArtifact[version]]]]';
+			return Promise.all([makeRequest(getOptions), this.getQueue()]).then(responses=>{
+				let status = JSON.parse(responses[0]);
+				let queue = responses[1];
+				return queue.items.map(item=>{
+					if(item.task.name===jobName)
+						return item.id+'\t\t'+(new Date(item.inQueueSince)).toLocaleString()+'\t'+(item.actions[0].causes ?item.actions[0].causes[0]._class+'\t':'')+item.params+'\n';
+				})
+					.concat(status.builds.map(build=>{
 						let msg = '';
 						//columns
 						msg += build.displayName+'\t';
-						msg += build.building ? 'IN PROGRESS\t': (build.result === 'SUCCESS' ? '\x1b[32m'+build.result : '\x1b[31m'+build.result)+'\x1b[0m\t';
+						msg += build.building ? '\x1b[33mIN PROGRESS\x1b[m\t': (build.result === 'SUCCESS' ? '\x1b[32m'+build.result : '\x1b[31m'+build.result)+'\x1b[0m\t';
 						msg += (new Date(build.timestamp)).toLocaleString()+'\t';
-						msg += build.actions[0]._class === 'hudson.model.ParametersAction' && !build.building ?
-							(build.result === 'SUCCESS' ? 'Successful' : 'Failed')+' release '+(build.mavenArtifacts?build.mavenArtifacts.moduleRecords[0].mainArtifact.version.slice(0,-9):'') :'';
+						msg += build.actions.reduce((a,cur)=>{
+							if(cur.lastBuiltRevision)
+								return cur.lastBuiltRevision.branch[0].name+'\t';
+							return a;
+						}, '');
+						msg += build.actions[0]._class === 'hudson.model.ParametersAction' ?
+							(!build.building ? build.result === 'SUCCESS' ? 'Successful' : 'Failed':'') +' release '+(build.mavenArtifacts?build.mavenArtifacts.moduleRecords[0].mainArtifact.version.slice(0,-9) :''):'';
 						msg += '\n';
 						return msg;
-					}).join('');
-				},rejected=>{
-					console.warn(rejected);
-				});
+					})).join('');
 			});
 		},
 		stop: function(buildNumber){
@@ -201,14 +227,15 @@ const jenkins = (function(){
 			postOptions.method = 'POST';
 			postOptions.path = '/job/'+jobName+'/'+buildNumber+'/stop';
 			return makeRequest(postOptions);
+		},
+		cancel: function(queueNumber){
+			let postOptions = options();
+			postOptions.method = 'POST';
+			postOptions.path = '/queue/cancelItem?id='+queueNumber;
+			return makeRequest(postOptions);
 		}
 	};
 })();
-// if(!process.argv[2])
-// {
-// 	process.argv[2]='status';
-// 	process.argv[3]=16;
-// }
 switch (process.argv[2])
 {
 case 'build':
@@ -216,6 +243,9 @@ case 'build':
 	break;
 case 'stop':
 	jenkins.stop(process.argv[3]).then(r=>console.log(r)).catch(e=>console.warn(e));
+	break;
+case 'cancel':
+	jenkins.cancel(process.argv[3]).then(r=>console.log(r)).catch(e=>console.warn(e));
 	break;
 case 'release':
 	if(process.argv[3] && process.argv[4])
@@ -241,9 +271,15 @@ case 'branch':
 	jenkins.getBranch().then(r=>console.log(r)).catch(e=>console.warn(e));
 	break;
 case 'queue':
-	jenkins.getQueue().then(r=>console.log(r)).catch(e=>console.warn(e));
+	if(process.argv[3]=='purge')
+		jenkins.purgeQueue().then(r=>console.log(r)).catch(e=>console.warn(e));
+	else
+		jenkins.getQueueStatus().then(r=>console.log(r)).catch(e=>console.warn(e));
 	break;
-default:
+case 'help':
+case '-h':
+case '-help':
+case '--help':
 	console.log(`OPTIONS:
 '\x1b[31mbuild\x1b[0m': \tschedule jenkins build
 '\x1b[31mstop [n]\x1b[0m': \tstop specific build
@@ -254,4 +290,9 @@ default:
 '\x1b[31mbranch\x1b[0m': \tget job's remote branch
 '\x1b[31mqueue\x1b[0m': \tnot implemented yet
 	`);
+	break;
+default:
+	Promise.all([jenkins.getQueueStatus(), jenkins.getBranch(), jenkins.getNextVersion(), jenkins.getStatus()])
+		.then(r=>console.log(r.map(o=>typeof o === 'object' ? JSON.stringify(o):o).join('\n')))
+		.catch(e=>console.warn(e));
 }
