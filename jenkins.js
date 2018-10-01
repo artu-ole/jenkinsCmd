@@ -243,6 +243,12 @@ const jenkins = (function(){
 			postOptions.path = '/job/'+jobName+'/'+buildNumber+'/stop';
 			return makeRequest(postOptions);
 		},
+		purgeQueue: function(){
+			let postOptions = options();
+			postOptions.method = 'POST';
+			postOptions.path = '/purge-build-queue/purge';
+			return makeRequest(postOptions);
+		},
 		cancel: function(queueNumber){
 			let postOptions = options();
 			postOptions.method = 'POST';
@@ -288,11 +294,11 @@ switch (process.argv[2])
 		else
 			jenkins.getBranch().then(r=>console.log(r)).catch(e=>console.warn(e));
 		break;
+	case 'purge':
+		jenkins.purgeQueue().then(r=>console.log(r)).catch(e=>console.warn(e));
+		break;
 	case 'queue':
-		if(process.argv[3]=='purge')
-			jenkins.purgeQueue().then(r=>console.log(r)).catch(e=>console.warn(e));
-		else
-			jenkins.getQueueStatus().then(r=>console.log(r)).catch(e=>console.warn(e));
+		jenkins.getQueueStatus().then(r=>console.log(r)).catch(e=>console.warn(e));
 		break;
 	case 'help':
 	case '-h':
@@ -301,12 +307,14 @@ switch (process.argv[2])
 		console.log(`OPTIONS:
 '\x1b[31mbuild\x1b[0m': \tschedule jenkins build
 '\x1b[31mstop [n]\x1b[0m': \tstop specific build
+'\x1b[31mcancel [n]\x1b[0m': \tcancel scheduled job
 '\x1b[31mrelease {releaseVersion} {devVersion}\x1b[0m': 
 \tschedule release, if any of optional versions not provided - will use default 
 '\x1b[31mstatus {n}\x1b[0m': \tshow status, if optional num provided - show specific build console log
 '\x1b[31mconfig\x1b[0m': \tget job's config.xml
-'\x1b[31mbranch\x1b[0m': \tget job's remote branch
-'\x1b[31mqueue\x1b[0m': \tnot implemented yet
+'\x1b[31mbranch {name}\x1b[0m': \tget job's remote branch, if optional name provided - set remote branch
+'\x1b[31mpurge\x1b[0m': \tpurge build queue
+'\x1b[31mqueue\x1b[0m': \tlist jobs building and build queue
 	`);
 		break;
 	default:
