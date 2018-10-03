@@ -177,6 +177,7 @@ const jenkins = (function(){
 				});
 			}
 		},
+		//get current queue
 		getQueue: function(){
 			let getOptions = options();
 			getOptions.path = '/queue/api/json?tree=items[actions[causes]{0},id,inQueueSince,params,task[name]]';
@@ -184,9 +185,15 @@ const jenkins = (function(){
 			getExecOptions.path = '/computer/api/json?tree=computer[executors[idle,likelyStuck,progress,currentExecutable[timestamp,number,actions[causes]{0},result,displayName,fullDisplayName,building,mavenArtifacts[moduleRecords[mainArtifact[version]]]]]]';
 			return makeRequest(getOptions).then(response=>JSON.parse(response));
 		},
+		//get currently building stuff
 		getBuilds: function(){
 			let getOptions = options();
 			getOptions.path = '/computer/api/json?tree=computer[executors[idle,likelyStuck,progress,currentExecutable[timestamp,number,actions[causes]{0},result,displayName,fullDisplayName,building,mavenArtifacts[moduleRecords[mainArtifact[version]]]]]]';
+			return makeRequest(getOptions).then(response=>JSON.parse(response));
+		},
+		getJobs: function(){
+			let getOptions = options();
+			getOptions.path = '/job/'+jobName+'/api/json?tree=builds[timestamp,number,actions[causes,lastBuiltRevision[branch[name,SHA1]]],result,displayName,building,mavenArtifacts[moduleRecords[mainArtifact[version]]]]';
 			return makeRequest(getOptions).then(response=>JSON.parse(response));
 		},
 		getQueueStatus: function(){
@@ -210,10 +217,8 @@ const jenkins = (function(){
 			});
 		},
 		getStatus: function(){
-			let getOptions = options();
-			getOptions.path = '/job/'+jobName+'/api/json?tree=builds[timestamp,number,actions[causes,lastBuiltRevision[branch[name,SHA1]]],result,displayName,building,mavenArtifacts[moduleRecords[mainArtifact[version]]]]';
-			return Promise.all([makeRequest(getOptions), this.getQueue()]).then(responses=>{
-				let status = JSON.parse(responses[0]);
+			return Promise.all([this.getJobs(), this.getQueue()]).then(responses=>{
+				let status = responses[0];
 				let queue = responses[1];
 				return queue.items.map(item=>{
 					if(item.task.name===jobName)
@@ -284,6 +289,9 @@ switch (process.argv[2])
 			Promise.all([jenkins.getBranch(), jenkins.getNextVersion(), jenkins.getStatus()])
 				.then(r=>console.log(r.map(o=>typeof o === 'object' ? JSON.stringify(o):o).join('\n')))
 				.catch(e=>console.warn(e));
+		break;
+	case 'latest':
+		jenkins.getJobs().then(j=>jenkins.console(j.builds[0].number)).then(r=>console.log(r)).catch(e=>console.warn(e));
 		break;
 	case 'config':
 		jenkins.getConfig().then(r=>console.log(r)).catch(e=>console.warn(e));
