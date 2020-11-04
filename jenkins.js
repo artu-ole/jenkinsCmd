@@ -292,13 +292,28 @@ const jenkins = (function(){
 			jenkins.cancel(process.argv[3]).then(r=>console.log(r)).catch(e=>console.warn(e));
 			break;
 		case 'release':
-			if(process.argv[3] && process.argv[4])
-				jenkins.release(process.argv[3], process.argv[4]).then(r=>console.log(r)).catch(e=>console.warn(e));
-			else
-				jenkins.getNextVersion().then(r=>{
-					console.log(r);
-					return jenkins.release(r.release, r.dev);
-				}).then(r=>console.log(r)).catch(e=>console.warn(e));
+			let releaseVersion;
+			let nextVersion;
+			if(process.argv[3]) {
+				releaseVersion = process.argv[3];
+				nextVersion = process.argv[4];
+				if(!nextVersion) {
+					const nums = releaseVersion.split('.');
+					nums[nums.length - 1] = parseInt(nums[nums.length - 1]) + 1 + '-SNAPSHOT';
+					nextVersion = nums.join('.');
+				}
+			} else {
+				const { release, dev } = await jenkins.getNextVersion();
+				releaseVersion = release;
+				nextVersion = dev;
+			}
+			try {
+				console.log(`Release: ${releaseVersion}, dev: ${nextVersion}`);
+				const releaseLog = await jenkins.release(releaseVersion, nextVersion);
+				console.log(releaseLog);
+			} catch (e) {
+				console.error(e);
+			}
 			break;
 		case 'status':
 			if(process.argv[3])
