@@ -145,6 +145,23 @@ const jenkins = (function(){
 			data.slice(0, -1);
 			return makeRequest(postOptions, data);
 		},
+		pendingLatest: async function() {
+			
+			try {
+				const jobs = await this.getJobs();
+				if(!jobs.builds[0].building) {
+					console.log('Pending');
+					setTimeout(() => {
+						this.pendingLatest();
+					}, 5000);
+				} else {
+					const r = await this.console(jobs.builds[0].number);
+					console.log(r);
+				}
+			} catch (e) {
+				console.error(e);
+			}
+		},
 		console: function(buildNumber){
 			let postOptions = options();
 			postOptions.path = '/job/'+jobName+'/'+buildNumber+'/logText/progressiveText';
@@ -262,71 +279,73 @@ const jenkins = (function(){
 		}
 	};
 })();
-switch (process.argv[2])
-{
-	case 'build':
-		jenkins.build().then(r=>console.log(r)).catch(e=>console.warn(e));
-		break;
-	case 'stop':
-		jenkins.stop(process.argv[3]).then(r=>console.log(r)).catch(e=>console.warn(e));
-		break;
-	case 'cancel':
-		jenkins.cancel(process.argv[3]).then(r=>console.log(r)).catch(e=>console.warn(e));
-		break;
-	case 'release':
-		if(process.argv[3] && process.argv[4])
-			jenkins.release(process.argv[3], process.argv[4]).then(r=>console.log(r)).catch(e=>console.warn(e));
-		else
-			jenkins.getNextVersion().then(r=>{
-				console.log(r);
-				return jenkins.release(r.release, r.dev);
-			}).then(r=>console.log(r)).catch(e=>console.warn(e));
-		break;
-	case 'status':
-		if(process.argv[3])
-			jenkins.console(process.argv[3]).then(r=>console.log(r)).catch(e=>console.warn(e));
-		else
-			Promise.all([jenkins.getBranch(), jenkins.getNextVersion(), jenkins.getStatus()])
+
+(async () => {
+	switch (process.argv[2]) {
+		case 'build':
+			jenkins.build().then(r=>console.log(r)).catch(e=>console.warn(e));
+			break;
+		case 'stop':
+			jenkins.stop(process.argv[3]).then(r=>console.log(r)).catch(e=>console.warn(e));
+			break;
+		case 'cancel':
+			jenkins.cancel(process.argv[3]).then(r=>console.log(r)).catch(e=>console.warn(e));
+			break;
+		case 'release':
+			if(process.argv[3] && process.argv[4])
+				jenkins.release(process.argv[3], process.argv[4]).then(r=>console.log(r)).catch(e=>console.warn(e));
+			else
+				jenkins.getNextVersion().then(r=>{
+					console.log(r);
+					return jenkins.release(r.release, r.dev);
+				}).then(r=>console.log(r)).catch(e=>console.warn(e));
+			break;
+		case 'status':
+			if(process.argv[3])
+				jenkins.console(process.argv[3]).then(r=>console.log(r)).catch(e=>console.warn(e));
+			else
+				Promise.all([jenkins.getBranch(), jenkins.getNextVersion(), jenkins.getStatus()])
+					.then(r=>console.log(r.map(o=>typeof o === 'object' ? JSON.stringify(o):o).join('\n')))
+					.catch(e=>console.warn(e));
+			break;
+		case 'latest':
+			jenkins.pendingLatest();
+			break;
+		case 'config':
+			jenkins.getConfig().then(r=>console.log(r)).catch(e=>console.warn(e));
+			break;
+		case 'branch':
+			if(process.argv[3])
+				jenkins.setBranch(process.argv[3]).then(r=>console.log(r)).catch(e=>console.warn(e));
+			else
+				jenkins.getBranch().then(r=>console.log(r)).catch(e=>console.warn(e));
+			break;
+		case 'purge':
+			jenkins.purgeQueue().then(r=>console.log(r)).catch(e=>console.warn(e));
+			break;
+		case 'queue':
+			jenkins.getQueueStatus().then(r=>console.log(r)).catch(e=>console.warn(e));
+			break;
+		case 'help':
+		case '-h':
+		case '-help':
+		case '--help':
+			console.log(`OPTIONS:
+	'\x1b[31mbuild\x1b[0m': \tschedule jenkins build
+	'\x1b[31mstop [n]\x1b[0m': \tstop specific build
+	'\x1b[31mcancel [n]\x1b[0m': \tcancel scheduled job
+	'\x1b[31mrelease {releaseVersion} {devVersion}\x1b[0m': 
+	\tschedule release, if any of optional versions not provided - will use default 
+	'\x1b[31mstatus {n}\x1b[0m': \tshow status, if optional num provided - show specific build console log
+	'\x1b[31mconfig\x1b[0m': \tget job's config.xml
+	'\x1b[31mbranch {name}\x1b[0m': \tget job's remote branch, if optional name provided - set remote branch
+	'\x1b[31mpurge\x1b[0m': \tpurge build queue
+	'\x1b[31mqueue\x1b[0m': \tlist jobs building and build queue
+		`);
+			break;
+		default:
+			Promise.all([jenkins.getQueueStatus(), jenkins.getBranch(), jenkins.getNextVersion(), jenkins.getStatus()])
 				.then(r=>console.log(r.map(o=>typeof o === 'object' ? JSON.stringify(o):o).join('\n')))
 				.catch(e=>console.warn(e));
-		break;
-	case 'latest':
-		jenkins.getJobs().then(j=>jenkins.console(j.builds[0].number)).then(r=>console.log(r)).catch(e=>console.warn(e));
-		break;
-	case 'config':
-		jenkins.getConfig().then(r=>console.log(r)).catch(e=>console.warn(e));
-		break;
-	case 'branch':
-		if(process.argv[3])
-			jenkins.setBranch(process.argv[3]).then(r=>console.log(r)).catch(e=>console.warn(e));
-		else
-			jenkins.getBranch().then(r=>console.log(r)).catch(e=>console.warn(e));
-		break;
-	case 'purge':
-		jenkins.purgeQueue().then(r=>console.log(r)).catch(e=>console.warn(e));
-		break;
-	case 'queue':
-		jenkins.getQueueStatus().then(r=>console.log(r)).catch(e=>console.warn(e));
-		break;
-	case 'help':
-	case '-h':
-	case '-help':
-	case '--help':
-		console.log(`OPTIONS:
-'\x1b[31mbuild\x1b[0m': \tschedule jenkins build
-'\x1b[31mstop [n]\x1b[0m': \tstop specific build
-'\x1b[31mcancel [n]\x1b[0m': \tcancel scheduled job
-'\x1b[31mrelease {releaseVersion} {devVersion}\x1b[0m': 
-\tschedule release, if any of optional versions not provided - will use default 
-'\x1b[31mstatus {n}\x1b[0m': \tshow status, if optional num provided - show specific build console log
-'\x1b[31mconfig\x1b[0m': \tget job's config.xml
-'\x1b[31mbranch {name}\x1b[0m': \tget job's remote branch, if optional name provided - set remote branch
-'\x1b[31mpurge\x1b[0m': \tpurge build queue
-'\x1b[31mqueue\x1b[0m': \tlist jobs building and build queue
-	`);
-		break;
-	default:
-		Promise.all([jenkins.getQueueStatus(), jenkins.getBranch(), jenkins.getNextVersion(), jenkins.getStatus()])
-			.then(r=>console.log(r.map(o=>typeof o === 'object' ? JSON.stringify(o):o).join('\n')))
-			.catch(e=>console.warn(e));
-}
+	}
+})()
